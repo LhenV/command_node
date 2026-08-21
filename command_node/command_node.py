@@ -1,3 +1,5 @@
+from multiprocessing import get_logger
+
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
@@ -7,14 +9,20 @@ from nav2_msgs.action import NavigateToPose
 
 class CommandNode(Node):
 
-    def __init__(self, posicao_x, posicao_y):
+    def __init__(self):
 
         super().__init__('command_node')
         self.get_logger().info("Nó de comando iniciado.")
 
+        self.objetivos = []
         # Posição desejada
-        self.posicao_x = posicao_x
-        self.posicao_y = posicao_y
+        for i in range(4):
+            print(f"\nObjetivo {i + 1}/4")
+
+            posicao_x = float(input("Digite a posição X: "))
+            posicao_y = float(input("Digite a posição Y: "))
+
+            self.objetivos.append((posicao_x, posicao_y))
 
         # Cliente da Action do Nav2
         self.action_client = ActionClient(
@@ -23,7 +31,7 @@ class CommandNode(Node):
             'navigate_to_pose'
         )
 
-    def enviar_objetivo(self):
+    def enviar_objetivo(self, posicao_x, posicao_y):
 
         self.get_logger().info("Esperando pelo servidor NavigateToPose...")
 
@@ -83,17 +91,39 @@ class CommandNode(Node):
             f"Navegação terminou. Status: {resultado.status}"
         )
 
+        return resultado.status == 4  # SUCESSO
+
+    def executar_fila(self):
+        self.get_logger().info("Executando fila de objetivos.")
+
+        if not self.action_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error(
+                "Servidor NavigateToPose não encontrado!"
+            )
+            return
+
+        for numero, (x, y) in enumerate(self.objetivos, start=1):
+
+            self.get_logger().info(f"Objetivo {numero}/{len(self.objetivos)}")
+
+            sucesso = self.enviar_objetivo(x, y)
+
+            if not sucesso:
+                self.get_logger().error(f"Falha no objetivo {numero}. Fila interrompida.")
+                return
+
+            self.get_logger().info(f"Objetivo {numero} concluído!")
+
+        self.get_logger().info("Todos os objetivos foram concluídos!")
+
 def main(args=None):
 
     rclpy.init(args=args)
 
-    posicao_x = float(input("Digite a posição X do objetivo: "))
-
-    posicao_y = float(input("Digite a posição Y do objetivo: "))
-    command_node = CommandNode(posicao_x, posicao_y)
+    command_node = CommandNode()
 
     try:
-        command_node.enviar_objetivo()
+        command_node.executar_fila()
 
     except KeyboardInterrupt:
         pass
